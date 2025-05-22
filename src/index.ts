@@ -94,7 +94,7 @@ if (!VALUECASE_CLIENT_ID || !VALUECASE_CLIENT_SECRET) {
   process.exit(1);
 }
 
-let valuecaseAccessToken: string | null = null;
+let valuecaseAccessToken: string = '';
 let tokenExpiresAt: number | null = null;
 
 async function fetchValueCaseAccessToken(): Promise<string> {
