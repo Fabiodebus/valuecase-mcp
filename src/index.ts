@@ -11,6 +11,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import axios, { AxiosInstance } from 'axios';
 import dotenv from 'dotenv';
+import express, { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 dotenv.config();
@@ -169,12 +171,14 @@ async function withRetry<T>(
   }
 }
 
-// Tool handlers
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [LIST_SPACES_TOOL, GET_SPACE_TOOL, LIST_FORMS_TOOL, GET_FORM_TOOL, GET_FORM_CONTENT_TOOL],
-}));
+// --- MCP logic as functions for reuse ---
+async function handleListTools() {
+  return {
+    tools: [LIST_SPACES_TOOL, GET_SPACE_TOOL, LIST_FORMS_TOOL, GET_FORM_TOOL, GET_FORM_CONTENT_TOOL],
+  };
+}
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+async function handleCallTool(request: any) {
   const { name, arguments: args } = request.params;
   try {
     const accessToken = await getValueCaseAccessToken();
@@ -241,8 +245,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
+}
+
+// --- stdio MCP handlers ---
+server.setRequestHandler(ListToolsRequestSchema, handleListTools);
+server.setRequestHandler(CallToolRequestSchema, handleCallTool);
+
+// --- Express HTTP server for cloud deployments ---
+const app = express();
+const httpPort = process.env.PORT || 3000;
+app.use(express.json());
+
+app.get('/sse', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const sessionId = uuidv4();
+  res.write('event: endpoint\n');
+  res.write(`data: /message?sessionId=${sessionId}\n\n`);
+  res.end();
 });
 
+app.post('/message', async (req: Request, res: Response) => {
+  // Handle MCP protocol over HTTP
+  const { method, params } = req.body;
+  if (method === 'list_tools') {
+    const result = await handleListTools();
+    res.json(result);
+    return;
+  } else if (method === 'call_tool') {
+    const result = await handleCallTool({ params });
+    res.json(result);
+    return;
+  } else {
+    res.status(400).json({ error: 'Unknown method' });
+    return;
+  }
+});
+
+app.get('/', (req: Request, res: Response) => {
+  res.send('ValueCase MCP server is running.');
+});
+
+app.listen(httpPort, () => {
+  console.log(`HTTP server listening on port ${httpPort}`);
+});
+
+// --- stdio MCP server startup ---
 async function runServer() {
   try {
     console.error('Initializing ValueCase MCP Server...');
