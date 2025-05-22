@@ -25,8 +25,6 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/docs ./docs
-COPY --from=build /app/README.md ./
-COPY --from=build /app/railway.json ./
 COPY --from=build /app/setup.js ./
 
 EXPOSE 3000
