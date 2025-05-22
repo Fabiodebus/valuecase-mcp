@@ -268,24 +268,28 @@ const EXPECTED_BEARER = process.env.VALUECASE_MCP_BEARER;
 
 app.use(express.json());
 
-app.post('/sse', async (req: Request, res: Response) => {
+app.post('/sse', (req: Request, res: Response) => {
+  validateSseRequest(req, res).catch(() => {
+    res.status(500).json({ error: 'Internal server error' });
+  });
+});
+
+async function validateSseRequest(req: Request, res: Response) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
   }
   const token = authHeader.split(' ')[1];
 
-  // Validate the token by making a test API call to ValueCase
   try {
     await axios.get(`${VALUECASE_API_URL}/spaces`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    // If successful, token is valid
     return res.status(200).json({ message: 'Authenticated and received!' });
   } catch (err) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
-});
+}
 
 app.get('/', (req: Request, res: Response) => {
   res.send('ValueCase MCP server is running.');
