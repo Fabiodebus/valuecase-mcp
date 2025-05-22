@@ -1,90 +1,3 @@
-#!/usr/bin/env node
-
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  Tool,
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ErrorCode,
-  McpError,
-} from '@modelcontextprotocol/sdk/types.js';
-import axios, { AxiosInstance } from 'axios';
-import dotenv from 'dotenv';
-import express, { Request, Response } from 'express';
-
-// Load environment variables
-dotenv.config();
-
-// Tool definitions
-const LIST_SPACES_TOOL: Tool = {
-  name: 'valuecase_list_spaces',
-  description: 'List all spaces available to the user.',
-  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-};
-
-const GET_SPACE_TOOL: Tool = {
-  name: 'valuecase_get_space',
-  description: 'Get details of a specific space by ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      spaceId: { type: 'string', description: 'ID of the space' },
-    },
-    required: ['spaceId'],
-  },
-};
-
-const LIST_FORMS_TOOL: Tool = {
-  name: 'valuecase_list_forms',
-  description: 'List all forms in a specific space.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      spaceId: { type: 'string', description: 'ID of the space' },
-    },
-    required: ['spaceId'],
-  },
-};
-
-const GET_FORM_TOOL: Tool = {
-  name: 'valuecase_get_form',
-  description: 'Get details of a specific form by ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      formId: { type: 'string', description: 'ID of the form' },
-    },
-    required: ['formId'],
-  },
-};
-
-const GET_FORM_CONTENT_TOOL: Tool = {
-  name: 'valuecase_get_form_content',
-  description: 'Get all content from a specific form by ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      formId: { type: 'string', description: 'ID of the form' },
-    },
-    required: ['formId'],
-  },
-};
-
-const server = new Server(
-  {
-    name: 'valuecase-mcp',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
-      logging: {},
-    },
-  }
-);
-
-// --- OAuth2 Client Credentials Flow for ValueCase API ---
 const VALUECASE_CLIENT_ID = process.env.VALUECASE_CLIENT_ID;
 const VALUECASE_CLIENT_SECRET = process.env.VALUECASE_CLIENT_SECRET;
 const VALUECASE_API_URL = process.env.VALUECASE_API_URL || 'https://api.valuecase.com/v1';
@@ -94,9 +7,11 @@ if (!VALUECASE_CLIENT_ID || !VALUECASE_CLIENT_SECRET) {
   process.exit(1);
 }
 
+// OAuth token cache
 let valuecaseAccessToken: string | null = null;
 let tokenExpiresAt: number | null = null;
 
+// Function to fetch a new access token
 async function fetchValueCaseAccessToken(): Promise<string> {
   const url = 'https://app.valuecase.com/dashboard/api/api-auth/token';
   const response = await axios.post(url, {
@@ -104,10 +19,12 @@ async function fetchValueCaseAccessToken(): Promise<string> {
     client_secret: VALUECASE_CLIENT_SECRET,
   });
   valuecaseAccessToken = response.data.access_token;
+  // expires_in is in seconds
   tokenExpiresAt = Date.now() + (response.data.expires_in - 60) * 1000; // refresh 1 min before expiry
   return valuecaseAccessToken;
 }
 
+// Function to get a valid access token (fetch if expired)
 async function getValueCaseAccessToken(): Promise<string> {
   if (!valuecaseAccessToken || !tokenExpiresAt || Date.now() > tokenExpiresAt) {
     return await fetchValueCaseAccessToken();
@@ -184,48 +101,4 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
-});
-
-async function runServer() {
-  try {
-    console.error('Initializing ValueCase MCP Server...');
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error('ValueCase MCP Server running on stdio');
-  } catch (error) {
-    console.error('Fatal error running server:', error);
-    process.exit(1);
-  }
-}
-
-runServer().catch((error: any) => {
-  console.error('Fatal error running server:', error);
-  process.exit(1);
-});
-
-// Express HTTP server for /sse endpoint with Bearer token authentication
-const app = express();
-const httpPort = process.env.PORT || 3000;
-const EXPECTED_BEARER = process.env.VALUECASE_MCP_BEARER;
-
-app.use(express.json());
-
-app.post('/sse', (req: Request, res: Response) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-  }
-  const token = authHeader.split(' ')[1];
-  if (!EXPECTED_BEARER || token !== EXPECTED_BEARER) {
-    return res.status(403).json({ error: 'Invalid token' });
-  }
-  res.status(200).json({ message: 'Authenticated and received!' });
-});
-
-app.get('/', (req: Request, res: Response) => {
-  res.send('ValueCase MCP server is running.');
-});
-
-app.listen(httpPort, () => {
-  console.log(`HTTP server listening on port ${httpPort}`);
-});
+}); 
