@@ -79,7 +79,7 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: true,
+      tools: { enabled: true },
       logging: {},
     },
   }
@@ -268,19 +268,26 @@ app.get('/sse', (req: Request, res: Response) => {
 });
 
 app.post('/message', async (req: Request, res: Response) => {
-  // Handle MCP protocol over HTTP
-  const { method, params } = req.body;
-  if (method === 'list_tools') {
-    const result = await handleListTools();
-    res.json(result);
-    return;
-  } else if (method === 'call_tool') {
-    const result = await handleCallTool({ params });
-    res.json(result);
-    return;
-  } else {
-    res.status(400).json({ error: 'Unknown method' });
-    return;
+  try {
+    console.log('Received /message:', req.body);
+    const { method, params } = req.body;
+    if (method === 'list_tools') {
+      const result = await handleListTools();
+      res.status(200).json(result);
+    } else if (method === 'call_tool') {
+      const result = await handleCallTool({ params });
+      res.status(200).json(result);
+    } else {
+      res.status(200).json({
+        jsonrpc: "2.0",
+        error: { code: -32601, message: "Method not found" }
+      });
+    }
+  } catch (err) {
+    res.status(200).json({
+      jsonrpc: "2.0",
+      error: { code: -32603, message: "Internal error", data: err instanceof Error ? err.message : String(err) }
+    });
   }
 });
 
