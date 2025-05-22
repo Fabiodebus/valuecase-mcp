@@ -79,7 +79,7 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {},
+      tools: true,
       logging: {},
     },
   }
