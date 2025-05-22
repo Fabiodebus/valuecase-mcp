@@ -12,6 +12,7 @@ import {
 import axios, { AxiosInstance } from 'axios';
 import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 dotenv.config();
@@ -293,6 +294,20 @@ async function validateSseRequest(req: Request, res: Response) {
 
 app.get('/', (req: Request, res: Response) => {
   res.send('ValueCase MCP server is running.');
+});
+
+// SSE GET endpoint for ValueCase/Claude integration
+app.get('/sse', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sessionId = uuidv4();
+  res.write('event: endpoint\n');
+  res.write(`data: /message?sessionId=${sessionId}\n\n`);
+  // Optionally, keep the connection open or close after sending
+  res.end();
 });
 
 app.listen(httpPort, () => {
