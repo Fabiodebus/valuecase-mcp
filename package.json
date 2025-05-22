@@ -1,19 +1,25 @@
 {
   "name": "valuecase-mcp",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "ValueCase MCP Server",
+  "main": "dist/index.js",
   "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.5",
-    "@types/node": "^22.15.21",
     "axios": "^1.9.0",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   }
 }
