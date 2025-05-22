@@ -123,6 +123,53 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
+// Structured logging function
+function safeLog(
+  level: 'error' | 'debug' | 'info' | 'notice' | 'warning' | 'critical' | 'alert' | 'emergency',
+  data: any
+): void {
+  // For now, just log to console. You can enhance this to log to a file or external service.
+  const msg = `[${level}] ${typeof data === 'object' ? JSON.stringify(data) : data}`;
+  if (level === 'error' || level === 'critical') {
+    console.error(msg);
+  } else {
+    console.log(msg);
+  }
+}
+
+// Utility function for delay
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Retry logic with exponential backoff
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  context: string,
+  attempt = 1,
+  maxAttempts = 3,
+  initialDelay = 1000,
+  maxDelay = 10000,
+  backoffFactor = 2
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const isRateLimit =
+      error instanceof Error &&
+      (error.message.includes('rate limit') || error.message.includes('429'));
+
+    if (isRateLimit && attempt < maxAttempts) {
+      const delayMs = Math.min(initialDelay * Math.pow(backoffFactor, attempt - 1), maxDelay);
+      safeLog('warning', `Rate limit hit for ${context}. Attempt ${attempt}/${maxAttempts}. Retrying in ${delayMs}ms`);
+      await delay(delayMs);
+      return withRetry(operation, context, attempt + 1, maxAttempts, initialDelay, maxDelay, backoffFactor);
+    }
+    safeLog('error', { message: `Request failed in ${context}: ${error instanceof Error ? error.message : String(error)}`, context, attempt });
+    throw error;
+  }
+}
+
 // Tool handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [LIST_SPACES_TOOL, GET_SPACE_TOOL, LIST_FORMS_TOOL, GET_FORM_TOOL, GET_FORM_CONTENT_TOOL],
@@ -134,51 +181,62 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const accessToken = await getValueCaseAccessToken();
     switch (name) {
       case 'valuecase_list_spaces': {
-        const response = await apiClient.get('/spaces', {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await withRetry(
+          () => apiClient.get('/spaces', { headers: { Authorization: `Bearer ${accessToken}` } }),
+          'list spaces'
+        );
+        safeLog('info', 'Fetched spaces');
         return { content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }], isError: false };
       }
       case 'valuecase_get_space': {
         if (!args || typeof args.spaceId !== 'string') {
           throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid spaceId');
         }
-        const response = await apiClient.get(`/spaces/${args.spaceId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await withRetry(
+          () => apiClient.get(`/spaces/${args.spaceId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          'get space'
+        );
+        safeLog('info', `Fetched space ${args.spaceId}`);
         return { content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }], isError: false };
       }
       case 'valuecase_list_forms': {
         if (!args || typeof args.spaceId !== 'string') {
           throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid spaceId');
         }
-        const response = await apiClient.get(`/spaces/${args.spaceId}/forms`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await withRetry(
+          () => apiClient.get(`/spaces/${args.spaceId}/forms`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          'list forms'
+        );
+        safeLog('info', `Fetched forms for space ${args.spaceId}`);
         return { content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }], isError: false };
       }
       case 'valuecase_get_form': {
         if (!args || typeof args.formId !== 'string') {
           throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid formId');
         }
-        const response = await apiClient.get(`/forms/${args.formId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await withRetry(
+          () => apiClient.get(`/forms/${args.formId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          'get form'
+        );
+        safeLog('info', `Fetched form ${args.formId}`);
         return { content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }], isError: false };
       }
       case 'valuecase_get_form_content': {
         if (!args || typeof args.formId !== 'string') {
           throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid formId');
         }
-        const response = await apiClient.get(`/forms/${args.formId}/content`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await withRetry(
+          () => apiClient.get(`/forms/${args.formId}/content`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+          'get form content'
+        );
+        safeLog('info', `Fetched form content for form ${args.formId}`);
         return { content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }], isError: false };
       }
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
     }
   } catch (error) {
+    safeLog('error', error);
     return {
       content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
       isError: true,
@@ -210,16 +268,23 @@ const EXPECTED_BEARER = process.env.VALUECASE_MCP_BEARER;
 
 app.use(express.json());
 
-app.post('/sse', (req: Request, res: Response) => {
+app.post('/sse', async (req: Request, res: Response) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
   }
   const token = authHeader.split(' ')[1];
-  if (!EXPECTED_BEARER || token !== EXPECTED_BEARER) {
-    return res.status(403).json({ error: 'Invalid token' });
+
+  // Validate the token by making a test API call to ValueCase
+  try {
+    await axios.get(`${VALUECASE_API_URL}/spaces`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    // If successful, token is valid
+    return res.status(200).json({ message: 'Authenticated and received!' });
+  } catch (err) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
   }
-  res.status(200).json({ message: 'Authenticated and received!' });
 });
 
 app.get('/', (req: Request, res: Response) => {
